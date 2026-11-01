@@ -32,3 +32,7 @@ Enter a **single-line JSON** object with url, serviceToken and bridgeToken at it
 The bridge sends a heartbeat after each synchronization attempt, has bounded backoff and supervisor recovery. Disconnection does not block local work. A stopped factory does not apply queued remote commands. The remote page may retain its last snapshot after shutdown; it must show freshness rather than imply live progress.
 
 Implementing or publishing a new hosted portal is a separate deployment task. Do not connect a fresh install to another operator's existing portal.
+
+## Local portal option
+
+Use `npm run portal` for a standalone localhost portal without a bridge or hosted service. The ordinary `npm run up` already includes this interface alongside the executor. Portal-only mode preserves operator stops and does not synchronize or consume remote commands. See [getting started](getting-started.md#optional-portal-only-mode).

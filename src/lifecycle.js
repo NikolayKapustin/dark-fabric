@@ -74,7 +74,7 @@ async function start(home,{respectStop=false,timeoutMs=20000}={}) {
 }
 async function stop(home,{timeoutMs=25000}={}) {
   home=stateHome(home);mkdirSync(home,{recursive:true});
-  for(const file of ['stop','remote.stop'])writeFileSync(path.join(home,file),'Operator requested stop\n');
+  for(const file of ['stop','remote.stop','portal.stop'])writeFileSync(path.join(home,file),'Operator requested stop\n');
   const deadline=Date.now()+timeoutMs;
   while(servicePids(home).length&&Date.now()<deadline)await sleep(100);
   const pids=servicePids(home);

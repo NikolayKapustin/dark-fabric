@@ -1,12 +1,14 @@
+import {projectRequests} from './project-request.js';
 const $=id=>document.getElementById(id);
 const token=document.querySelector('meta[name=operator-token]').content;
 let state,selected=null,loading=false,settingsDirty=false;
 const drafts=new Map();
+let projectRequestStore;
 const names={pending:'В очереди',running:'В работе',blocked:'Нужен ответ',done:'Готово',active:'Активна',completed:'Завершена',research:'Исследование',plan:'План',implement:'Реализация',verify:'Проверки',review:'Ревью',integrate:'Интеграция',retrospective:'Улучшение',assess:'Следующий этап'};
-const eventNames={'factory.settings.updated':'Настройки сохранены','tokens.analyzed':'Анализ расхода токенов','quota.reserve.wait':'Сохраняем резерв лимита','quota.reserve.recovered':'Лимит восстановлен','quota.reserve.interrupted':'Этап сохранён до восстановления лимита','task.claimed':'Начат этап','stage.completed':'Этап завершён','task.integrated':'Интегрировано','verification.passed':'Проверки пройдены','question.created':'Нужен ответ','question.answered':'Ответ сохранён','task.retry':'Повтор запланирован','task.repair':'Исправление','task.recovered':'Восстановлено','quota.wait':'Ожидание лимита','mission.created':'Создана миссия','mission.completed':'Миссия завершена','retrospective.created':'Анализ процесса'};
+const eventNames={'project.requested':'Проект сохранён','project.created':'Проект подготовлен','project.updated':'Проект обновлён','factory.settings.updated':'Настройки сохранены','tokens.analyzed':'Анализ расхода токенов','quota.reserve.wait':'Сохраняем резерв лимита','quota.reserve.recovered':'Лимит восстановлен','quota.reserve.interrupted':'Этап сохранён до восстановления лимита','task.claimed':'Начат этап','stage.completed':'Этап завершён','task.integrated':'Интегрировано','verification.passed':'Проверки пройдены','question.created':'Нужен ответ','question.answered':'Ответ сохранён','task.retry':'Повтор запланирован','task.repair':'Исправление','task.recovered':'Восстановлено','quota.wait':'Ожидание лимита','mission.created':'Создана миссия','mission.completed':'Миссия завершена','retrospective.created':'Анализ процесса'};
 function el(tag,text,className){const node=document.createElement(tag);if(text!==undefined)node.textContent=text;if(className)node.className=className;return node;}
 function error(message){$('error').textContent=message;$('error').hidden=!message;}
-async function api(url,data){const r=await fetch(url,{method:data===undefined?'GET':'POST',headers:{'X-Dark-Fabric-Token':token,'Content-Type':'application/json'},...(data===undefined?{}:{body:JSON.stringify(data)})});const result=await r.json();if(!r.ok)throw new Error(result.error||r.statusText);return result;}
+async function api(url,data){const r=await fetch(url,{method:data===undefined?'GET':'POST',headers:{'X-Dark-Fabric-Token':token,'Content-Type':'application/json'},...(data===undefined?{}:{body:JSON.stringify(data)})});const result=await r.json();if(!r.ok){const err=new Error(result.error||r.statusText);err.status=r.status;throw err;}return result;}
 const date=value=>new Date(value).toLocaleString('ru-RU',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
 function detail(){
   const task=state.tasks.find(t=>t.id===selected);if(!task)return;
@@ -34,7 +36,13 @@ function render(){
   $('status-description').textContent=state.paused?'Текущие этапы завершаются; новые пока не запускаются.':reserveWait?`Сохраняем резерв ${state.quotaReserve.threshold}%. Обращения к Codex приостановлены до подтверждённого восстановления лимита. Локальные проверки продолжаются.`:quotaWait?`Следующая проверка ${date((quota.checkedAt||quota.observedAt)+state.quotaPollMs)}. Локальные проверки продолжаются.`:budgetWait?'Новые обращения к Codex продолжатся после 00:00 UTC.':open.length?`${open.length} вопросов сохранено. Независимые задачи могут продолжаться.`:'Задачи и результаты сохраняются в локальной базе.';
   $('status-dot').className='dot'+(quotaWait||state.paused||open.length?' wait':'');
   $('updated').textContent='Обновлено '+new Date().toLocaleTimeString('ru-RU');
-  $('pause').textContent=state.paused?'Продолжить работу':'Приостановить очередь';
+  const portalOnly=state.portal?.mode==='portal';
+  $('portal-mode').hidden=!portalOnly;
+  $('pause').disabled=portalOnly;
+  $('pause').textContent=portalOnly?'Исполнитель остановлен':state.paused?'Продолжить работу':'Приостановить очередь';
+  if(portalOnly){$('status').textContent='Локальный портал · исполнитель остановлен';$('status-description').textContent='Показано сохранённое состояние. Новые задачи не запускаются; лимит Codex не расходуется.';$('status-dot').className='dot wait';}
+  renderProjects();
+  reconcileProjectRequest();
   $('budget').textContent=state.budget?`Обращений к Codex за ${state.budget.day}: ${state.budget.used}`:'';
   if(!$('questions').contains(document.activeElement)){
     $('questions').replaceChildren();
@@ -57,6 +65,22 @@ function render(){
 }
 async function refresh(){if(loading)return;loading=true;try{state=await api('/api/state');error('');render();}catch(e){error('Нет связи с фабрикой: '+e.message);}finally{loading=false;}}
 $('pause').onclick=async()=>{try{await api('/api/pause',{paused:!state.paused});await refresh();}catch(e){error(e.message);}};
+$('new-project').onclick=()=>{$('project-form').hidden=!$('project-form').hidden;};
+$('project-form').onsubmit=async e=>{
+ e.preventDefault();const button=e.target.querySelector('button');button.disabled=true;
+ try{
+  if(!projectRequestStore)throw Error('Дождитесь подключения к порталу.');
+  const payload=projectRequestStore.prepare({id:crypto.randomUUID(),name:$('project-name').value,goal:$('project-goal').value,priority:Number($('project-priority').value)});
+  projectRequestFields(payload);
+  await api('/api/projects',payload);
+  projectRequestStore.acknowledge(payload.id);projectRequestFields(null);
+  $('project-name').value='';$('project-goal').value='';$('project-message').textContent='Проект сохранён. Подготовка начнётся в работающей фабрике.';await refresh();
+ }catch(err){
+  // Validation is definitive; a transport failure may have committed already.
+  if(err.status>=400&&err.status<500&&err.status!==409){const pending=projectRequestStore?.read();if(pending)projectRequestStore.acknowledge(pending.id);projectRequestFields(null);}
+  error(err.message);
+ }finally{button.disabled=false;}
+};
 $('new-mission').onclick=()=>{$('mission-form').hidden=!$('mission-form').hidden;};
 $('mission-form').onsubmit=async e=>{e.preventDefault();const button=e.target.querySelector('button');button.disabled=true;try{await api('/api/missions',{projectId:$('project').value,goal:$('goal').value});$('goal').value='';$('mission-form').hidden=true;await refresh();}catch(err){error(err.message);}finally{button.disabled=false;}};
 $('settings-form').oninput=()=>{settingsDirty=true;$('settings-message').textContent='';};
@@ -94,4 +118,27 @@ function resources(){
  if(u?.known)box.append(el('p','Вход: '+fmt(u.total.inputTokens)+' · кэш (в составе входа): '+fmt(u.total.cachedInputTokens)+' · выход: '+fmt(u.total.outputTokens)+' · рассуждение (в составе выхода): '+fmt(u.total.reasoningOutputTokens)));
  if(u?.coverage)box.append(el('p','Учтено запусков: '+u.coverage.trackedRuns+' / '+u.coverage.modelRuns+(u.coverage.partialRuns?' · часть истории неполная':'')));
  const a=u?.assignments.find(x=>x.status==='running');if(a)box.append(el('strong',a.agent),el('p',(a.actualModel||a.model||'Модель по умолчанию')+' · '+(a.effort||'')),el('p',a.reason));
+}
+
+function renderProjects(){
+ const box=$('project-list');box.replaceChildren();
+ if(!state.projects.length&&!state.intakes?.length)box.append(el('div','Пока нет проектов. Добавьте название и цель — фабрика подготовит проект при запуске исполнителя.','empty'));
+ for(const p of state.projects){
+  const card=el('article',undefined,'mission');card.append(el('strong',p.name),el('p','Приоритет '+p.priority+' · '+(p.paused?'проект на паузе':'проект включён')),el('code',p.path));
+  const toggle=el('button',p.paused?'Снять паузу проекта':'Приостановить проект','quiet');toggle.onclick=async()=>{toggle.disabled=true;try{await api('/api/projects/update',{id:p.id,paused:!p.paused});await refresh();}catch(err){error(err.message);}finally{toggle.disabled=false;}};card.append(toggle);box.append(card);
+ }
+ for(const item of state.intakes||[]){const card=el('article',undefined,'mission');card.append(el('strong',item.payload.name),el('p',item.payload.goal),el('p',item.status==='retrying'?'Подготовка будет повторена: '+item.error:'Ожидает подготовки исполнителем'));box.append(card);}
+}
+
+function projectRequestFields(payload){
+ for(const [id,key] of [['project-name','name'],['project-goal','goal'],['project-priority','priority']]){const input=$(id);input.disabled=!!payload;if(payload)input.value=payload[key];}
+ $('project-form').querySelector('button').textContent=payload?'Повторить сохранение':'Сохранить проект';
+ if(payload){$('project-form').hidden=false;$('project-message').textContent='Подтверждение ещё не получено. Повторная отправка сохранит тот же проект.';}
+}
+function reconcileProjectRequest(){
+ projectRequestStore??=projectRequests(sessionStorage,state.portal.installationId);
+ const pending=projectRequestStore.read();if(!pending)return;
+ if(state.intakes?.some(p=>p.id===pending.id)||state.projects.some(p=>p.id===pending.id)){
+  projectRequestStore.acknowledge(pending.id);projectRequestFields(null);$('project-name').value='';$('project-goal').value='';$('project-message').textContent='Проект сохранён.';
+ }else projectRequestFields(pending);
 }

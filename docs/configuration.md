@@ -73,3 +73,7 @@ protectedFiles hashes are pinned when the operator installs the checks. Changes 
 Every project uses the same roadmap: reviewed discovery milestones plus headings from ROADMAP.md, docs/roadmap.md and STATUS.md, and the live task queue. Markdown is treated as text. Only these files are read, with real-path containment, byte and node limits. Documentation statements never mark a task delivered.
 
 New installations aggregate token days in UTC, matching the daily turn budget. The zone is returned in usage.timeZone and displayed in the console. Upgrades preserve the zone of historical daily buckets instead of silently relabeling them.
+
+## Local portal
+
+`npm run portal` selects the portal-only launch mode; `npm run up` selects the executor plus local portal (and an optional configured bridge). Both use `port` (default 4317) and bind only to `127.0.0.1`; `http://localhost:4317` is accepted. Launch mode is explicit rather than a persisted switch that could unexpectedly resume work. Resource settings remain editable in portal-only mode; quota polling and periodic analysis resume only with the executor.

@@ -12,6 +12,7 @@
   },
   "scripts": {
     "start": "node src/cli.js serve",
+    "portal": "node src/cli.js portal",
     "test": "node scripts/test.js",
     "check": "node scripts/check.js",
     "doctor": "node src/cli.js doctor",

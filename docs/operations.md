@@ -69,4 +69,8 @@ Repeated failures retain recent history and require diagnosis with a changed app
 
 The console serves the token only to the trusted local browser. Protected API calls use X-Dark-Fabric-Token. Host and Origin checks remain enabled.
 
-GET /api/state; POST /api/missions, /api/answers, /api/pause, /api/checks. The CLI is the supported interface for project registration and scripts. API bodies are validated server-side. Never expose the local console through a public bind address or an unauthenticated tunnel.
+GET /api/state; POST /api/missions, /api/answers, /api/pause, /api/checks. POST /api/projects queues a new project with id, name, goal and priority; identical IDs replay the same request, changed payloads conflict. POST /api/projects/update changes project pause/priority. Existing repository registration and scripts remain available via CLI. API bodies are validated server-side. Never expose the local console through a public bind address or an unauthenticated tunnel.
+
+## Portal-only operation
+
+`npm run portal` owns service.lock but never creates an executor heartbeat, recovers stages or calls Codex. The UI labels saved state explicitly. `npm run down` also writes portal.stop and waits for portal exit. The original stop / remote.stop and queue pause are not cleared by portal startup. Close the portal before explicitly starting the factory. A running supervisor or bridge prevents portal-only startup. Binding errors release ownership so a corrected port can be retried.

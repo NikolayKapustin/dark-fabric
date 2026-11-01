@@ -29,6 +29,14 @@ The stop command waits for process exit. It preserves the queue, results and wor
 
 For foreground development use `npm start` and Ctrl+C. A persisted operator stop is respected: use `npm run up` to explicitly restart after stopping.
 
+## Localhost portal without execution
+
+Run `npm ci`, then `npm run portal` and open **http://localhost:4317**. This mode does not need a Codex connection and never starts the executor or remote bridge. It preserves stop markers and queue pause. Settings, saved results, human answers and new project requests are available locally; quota readings may be stale.
+
+Use **Проекты → Новый проект** to enter a name, goal and priority. The durable request is provisioned only after the executor starts. Lost responses and page reloads retain the same request ID. Existing repositories can still be registered with the CLI below.
+
+The portal and executor share one ownership lock. If the factory is already running, use its existing portal. To execute queued work, close portal-only mode with Ctrl+C or `npm run down`, then explicitly run `npm run up`. Queue pause is preserved. Use `npm run portal -- --home "/absolute/state/path"` for another installation; set `port` in that installation's config.json to change the port. The server binds only to 127.0.0.1, not your LAN or a public address.
+
 ## Your first project
 
 Use a Git repository with at least one commit and committed source changes:

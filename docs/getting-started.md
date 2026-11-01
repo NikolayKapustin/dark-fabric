@@ -26,6 +26,14 @@ Setup uses `npm ci`, never floating dependency upgrades. It can be repeated afte
 
 The background launcher prints the resolved state directory and process IDs. Open http://127.0.0.1:4317 (or your configured port). No account for Dark Fabric or remote hosting is needed.
 
+## Optional portal-only mode
+
+After `npm ci`, run `npm run portal` and open http://localhost:4317. No Codex login, model call or remote hosting is needed to browse and prepare work. This opens the local operator interface without the executor, recovery, quota polling or bridge. It preserves the installation's stop markers and pause; it uses the same state directory and ownership lock as the factory.
+
+In **Проекты → Новый проект**, submit a name, goal and priority. The request is saved transactionally, with a stable ID across retries and reloads. Provisioning starts only when the executor is explicitly running. You can also review results, answer questions, prepare missions for existing projects and change resource settings.
+
+Stop the portal using Ctrl+C or `npm run down` before `npm run up`. If the factory is already running, simply open its existing portal. A separate portal process cannot run alongside it. To select another state directory: `npm run portal -- --home "/absolute/state/path"`. To change the port, edit `port` in that directory's config.json before starting.
+
 ## First mission
 
 Use `project add` for the root of a Git repository with at least one commit, or `project import` to snapshot a non-Git source folder. Quote paths containing spaces. Commit intended source changes first.

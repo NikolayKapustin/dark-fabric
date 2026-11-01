@@ -8,6 +8,7 @@ import { Engine } from './engine.js';
 import { acquireLock, getToken, addProject, addMission, importProject, validateChecks,pinChecks } from './service.js';
 import { createServer } from './server.js';
 import { diagnose } from './doctor.js';
+import { startPortal } from './portal.js';
 
 const program=new Command().name('dark-fabric').description('Durable autonomous Codex factory').version('0.1.0').option('--home <directory>','State directory');
 let store,config;
@@ -30,6 +31,14 @@ project.command('import <path>').description('Snapshot a directory without chang
 project.command('checks <id> <jsonFile>').action((id,file)=>{open();const project=store.project(id);if(!project)throw new Error('Project not found');store.db.prepare('UPDATE projects SET checks_json=? WHERE id=?').run(JSON.stringify(pinChecks(readChecks(file),project.path)),id);console.log('Quality commands updated.');});
 program.command('mission <projectId> [goal]').option('--goal-file <file>','Read goal text from a UTF-8 file').option('--continuous','Reassess and continue the original goal after each batch').action(async(projectId,goal,opts)=>{open();print(await addMission(store,config,projectId,opts.goalFile?readFileSync(opts.goalFile,'utf8'):goal,!!opts.continuous));});
 program.command('backup <file>').action(async(file)=>{open();await store.db.backup(path.resolve(file));console.log('SQLite snapshot saved. Back up workspaces and logs separately.');});
+program.command('portal').description('Local portal only; keeps the factory stopped').action(async()=>{
+  const portal=await startPortal(loadConfig(program.opts().home));
+  console.log(`Dark Fabric portal: ${portal.url} (executor and bridge are not started)`);
+  console.log('Stop with Ctrl+C or npm run down. To execute tasks, close the portal and use npm run up.');
+  const stop=()=>void portal.close();
+  process.once('SIGINT',stop);process.once('SIGTERM',stop);
+  process.on('message',message=>{if(message==='shutdown')stop();});
+});
 program.command('serve').action(async()=>{
   open();if(existsSync(path.join(config.root,'stop')))throw new Error('Factory is stopped by the operator. Use npm run up for an explicit restart.');
   const unlock=acquireLock(config.root);
