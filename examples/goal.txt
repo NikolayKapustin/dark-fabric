@@ -1,0 +1,1 @@
+Improve this project's error handling for invalid input. Preserve existing behavior for valid input, add regression tests, and document the result. Do not publish, deploy, or call paid external services.

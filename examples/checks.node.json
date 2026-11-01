@@ -1,0 +1,19 @@
+[
+  {
+    "name": "Tests",
+    "command": [
+      "npm",
+      "test"
+    ],
+    "timeoutMs": 300000
+  },
+  {
+    "name": "Static checks",
+    "command": [
+      "npm",
+      "run",
+      "check"
+    ],
+    "timeoutMs": 300000
+  }
+]
