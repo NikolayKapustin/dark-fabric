@@ -1,0 +1,6 @@
+interface:
+  display_name: "Publish Dark Fabric"
+  short_description: "Publish a private factory portal with ChatGPT sign-in"
+  default_prompt: "Use $publish-dark-fabric to publish my private factory portal in OpenAI Sites, connect this installation, and preserve any existing user pause or stop."
+policy:
+  allow_implicit_invocation: false

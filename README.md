@@ -37,6 +37,18 @@ Use **Проекты → Новый проект** to enter a name, goal and pri
 
 The portal and executor share one ownership lock. If the factory is already running, use its existing portal. To execute queued work, close portal-only mode with Ctrl+C or `npm run down`, then explicitly run `npm run up`. Queue pause is preserved. Use `npm run portal -- --home "/absolute/state/path"` for another installation; set `port` in that installation's config.json to change the port. The server binds only to 127.0.0.1, not your LAN or a public address.
 
+## Publish a private portal in OpenAI Sites
+
+Open this repository in a Sites-enabled ChatGPT/Codex environment and tell the agent:
+
+```text
+$publish-dark-fabric Publish my private factory portal in OpenAI Sites with ChatGPT sign-in, connect this installation, and preserve any existing pause or stop.
+```
+
+The repository skill lives in [.agents/skills/publish-dark-fabric/SKILL.md](.agents/skills/publish-dark-fabric/SKILL.md). If the client does not discover repository skills, ask the agent to read that file and carry out the same request; `AGENTS.md` routes natural-language publication requests there as well. The skill requires the Sites plugin and account access; installing the repository does not grant hosting access.
+
+The agent builds the hosted adapter from the included UI and protocol contract, publishes it privately, and configures the selected local bridge. The hosted server is generated for your installation; this is not a prebuilt cloud bundle or an npm deployment command. Execution stays on your computer. See [remote access](docs/remote-access.md) for prerequisites, retries and the stopped-factory behavior.
+
 ## Your first project
 
 Use a Git repository with at least one commit and committed source changes:

@@ -2,6 +2,22 @@
 
 The local console works without a remote service. This repository includes a **Sites bridge client**, not a preconfigured hosted account or shared portal. Every operator must provision their own private portal and credentials separately. The former installation's portal, hosting IDs and source history are not part of this distribution.
 
+## Agent-assisted publication
+
+The repository includes [$publish-dark-fabric](../.agents/skills/publish-dark-fabric/SKILL.md). In a ChatGPT/Codex environment with the Sites plugin, open this checkout and request:
+
+```text
+$publish-dark-fabric Publish a private portal for this installation with ChatGPT sign-in, connect the bridge, and preserve any user stop or pause.
+```
+
+The skill is explicitly invoked; there is no Git hook, install hook or automatic publication on startup. A natural-language publication request is routed by `AGENTS.md`; agents without skill discovery can read the linked file directly. The installed Sites plugin supplies the current hosting/authentication workflow. No Sites tools or account access means the agent can prepare local source, but cannot claim to publish it.
+
+The skill includes a [hosted adapter contract](../.agents/skills/publish-dark-fabric/references/portal-contract.md). It instructs the agent to build the server and queue, adapt the existing UI, test identity/recovery, publish through native Sites tools, and securely configure the existing bridge helper. There is no prebuilt hosted server in the distribution. Per-installation source normally lives in ignored `sites/dark-fabric-portal/`, with its own Sites repository and `.openai/hosting.json`; it is not committed to the public factory repository. Non-secret retry progress belongs in the selected state's `sites-publication.json`.
+
+New portals start owner-private. Browser access uses ChatGPT identity; the background bridge uses separate service credentials. Keep one factory per portal. Reusing a portal on another computer requires an intentional, verified migration of the same durable state, IDs, receipts and usable worktrees, after the old executor and bridge stop. Stopping the old bridge alone does not make it safe to connect a fresh database to its pending queue. The skill does not automate cross-machine state migration. A new independent installation gets a new portal.
+
+Publication preserves pause and stop markers. If execution is stopped, the result is a published portal and saved connection settings; live synchronization remains deferred until the operator authorizes startup. Configuring a connection does not authorize a real task or an automatic resume.
+
 ## Contract
 
 A compatible private Sites deployment exposes POST /api/bridge/sync over HTTPS. The client only accepts an HTTPS origin under .chatgpt.site, with no userinfo, path, query or fragment; redirects are rejected. This host restriction is retained.
