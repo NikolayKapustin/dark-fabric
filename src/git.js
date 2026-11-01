@@ -28,9 +28,11 @@ export function contained(root,target) {
   return path.resolve(target);
 }
 export async function inspectRepository(location) {
-  location=realpathSync(location);
+  // The native resolver also expands Windows short names and canonicalizes
+  // casing, so Git and Node agree on the identity of the same directory.
+  location=realpathSync.native(location);
   const top=(await git(location,['rev-parse','--show-toplevel'])).stdout.trim();
-  if(realpathSync(top)!==location)throw new Error('Register the repository root, not a subdirectory');
+  if(realpathSync.native(top)!==location)throw new Error('Register the repository root, not a subdirectory');
   const sha=(await git(location,['rev-parse','HEAD'])).stdout.trim();
   return {path:location,sha};
 }
@@ -50,7 +52,7 @@ export class Workspaces {
     if(existsSync(location)) {
       const actual=(await git(location,['rev-parse','--show-toplevel'])).stdout.trim();
       const actualBranch=(await git(location,['symbolic-ref','--short','HEAD'])).stdout.trim();
-      if(realpathSync(actual)!==realpathSync(location)||actualBranch!==branch)throw new Error('Existing workspace has unexpected identity');
+      if(realpathSync.native(actual)!==realpathSync.native(location)||actualBranch!==branch)throw new Error('Existing workspace has unexpected identity');
       return;
     }
     const exists=(await git(repo,['show-ref','--verify','--quiet',`refs/heads/${branch}`],{allowFailure:true})).code===0;

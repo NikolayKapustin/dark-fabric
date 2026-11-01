@@ -3,8 +3,25 @@ import assert from 'node:assert/strict';
 import { mkdtempSync,writeFileSync,mkdirSync,readFileSync,rmSync,unlinkSync,existsSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { Workspaces,git,IntegrationError } from '../src/git.js';
+import { Workspaces,git,inspectRepository,IntegrationError } from '../src/git.js';
 import { uid } from '../src/store.js';
+
+test('Windows repository and replay identities accept canonical path aliases but reject subdirectories and wrong branches',{skip:process.platform!=='win32'},async()=>{
+  const root=mkdtempSync(path.join(os.tmpdir(),'df-path-identity-')),repo=path.join(root,'MixedCaseSource');mkdirSync(repo);
+  try{
+    writeFileSync(path.join(repo,'base.txt'),'base');await git(repo,['init','-b','main']);await git(repo,['add','.']);await git(repo,['-c','user.name=Test','-c','user.email=test@local','commit','-m','base']);
+    const canonical=await inspectRepository(repo);
+    for(const alias of [repo.replace(/^[A-Z]:/,drive=>drive.toLowerCase()),repo.toUpperCase()])assert.deepEqual(await inspectRepository(alias),canonical);
+    const subdirectory=path.join(repo,'child');mkdirSync(subdirectory);
+    await assert.rejects(inspectRepository(subdirectory.toUpperCase()),/repository root, not a subdirectory/);
+    const ws=new Workspaces(path.join(root,'factory')),mission=await ws.mission(repo.toUpperCase(),uid());
+    await ws.create(repo,mission.branch,mission.workspace.toUpperCase(),mission.baseSha);
+    await assert.rejects(ws.create(repo,'wrong-branch',mission.workspace.toUpperCase(),mission.baseSha),/unexpected identity/);
+    const child=path.join(mission.workspace,'child');mkdirSync(child);
+    await assert.rejects(ws.create(repo,mission.branch,child.toUpperCase(),mission.baseSha),/unexpected identity/);
+    assert.equal(await ws.readOnlyHead(mission.workspace),canonical.sha);
+  }finally{rmSync(root,{recursive:true,force:true});}
+});
 
 test('real Git worktrees preserve source, isolate blocked work, and integrate replayably',async()=>{
   const root=mkdtempSync(path.join(os.tmpdir(),'df-git-')),repo=path.join(root,'source');mkdirSync(repo);
