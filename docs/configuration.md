@@ -26,6 +26,9 @@ Use the same absolute state path for every command. Each installation needs its 
 | maxRepairCycles | 4 | Ordinary repair limit before recovery policy |
 | dailyTurnLimit | 100 | Model turns per UTC day, including retries |
 | quotaPollMs | 300000 | Official account quota polling interval |
+| quotaReservePercent | 10 | Pause Codex at or below this remaining percentage in either account window; 0 disables the reserve, maximum 99 |
+| tokenAnalysisEnabled | true | Periodic session-usage reports and bounded optimization tasks |
+| tokenAnalysisIntervalHours | 24 | Analysis cadence, integer hours from 1 to 168 |
 | unknownQuotaBackoffMs | 900000 | Backoff for quota errors without reset time |
 | maxPlanTasks | 40 | Maximum tasks in a plan |
 | maxImprovementTasks | 3 | Maximum tasks in a retrospective |
@@ -36,7 +39,17 @@ Use the same absolute state path for every command. Each installation needs its 
 | executionAccess | workspace | workspace sandbox or explicitly authorized full host access |
 | technicalRecovery | true | Diagnose/retry technical faults without turning them into product decisions |
 
-Numeric values must be positive safe integers. Boolean flags must be JSON booleans. Model routing prefers suitable available models by stage and complexity; unavailable preferences fall back to the visible default catalog entry. It never switches accounts. Full access is not granted by a project document or an agent result.
+Numeric values must be positive safe integers, except quotaReservePercent which also accepts zero. Boolean flags must be JSON booleans. Model routing prefers suitable available models by stage and complexity; unavailable preferences fall back to the visible default catalog entry. It never switches accounts. Full access is not granted by a project document or an agent result.
+
+## Resource settings in the console
+
+Open **Настройки** in the local console to edit the quota reserve, enable periodic analysis, or change its interval. These three settings are stored transactionally in SQLite and override their config.json defaults across restarts. They take effect on the next scheduler tick without restarting. No other host policy can be changed through this endpoint.
+
+At 10% remaining or less in either official quota window, the factory stops starting Codex turns and requests interruption of active turns. Partial work and session IDs remain available for replay, without consuming retry attempts. Local verification and integration may continue. This is a quota wait, not an operator stop: the service keeps polling account/rateLimits/read. A reset timestamp alone, a failed read, or incomplete telemetry cannot release a confirmed reserve wait. A complete official response above the threshold permits work again; an operator pause or stop still takes precedence. Account usage is shared and telemetry arrives with delay, so this cannot guarantee an exact 10% balance at interruption.
+
+The first analysis runs on the next active scheduler tick, then every configured interval. Each pass summarizes at most 100 previously unanalyzed completed model runs with usage telemetry. It records totals, cache share, costly sessions and unsuccessful runs without sending raw logs to a model. Paused projects and unfinished runs wait for a later pass. Missing telemetry is not treated as zero usage or as evidence of savings.
+
+For each active mission with new evidence, the report queues one read-only analysis stage. It may propose at most one project workflow/harness optimization with comparable before/after evidence. Proposed changes go through ordinary implementation, pinned checks and independent review, under the same quota reserve and daily turn limit. Analysis and improvement runs do not trigger more analysis of themselves. Completed missions receive a local report only. Disabling periodic analysis prevents new reports/tasks; existing queued tasks are retained. Reports and task results appear under **Настройки**.
 
 ## Quality commands
 

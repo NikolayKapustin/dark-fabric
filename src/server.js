@@ -4,6 +4,8 @@ import { fileURLToPath } from 'node:url';
 import { timingSafeEqual } from 'node:crypto';
 import { addMission, validateChecks,pinChecks } from './service.js';
 import { usageSnapshot } from './telemetry.js';
+import {factorySettings,updateSettings,quotaReserve} from './settings.js';
+import {tokenAnalysisSnapshot} from './token-analysis.js';
 
 const publicRoot=new URL('../public/',import.meta.url);
 function json(res,status,data) {res.writeHead(status,{'Content-Type':'application/json; charset=utf-8'});res.end(JSON.stringify(data));}
@@ -34,7 +36,13 @@ export function createServer(store,config,token) {
         res.end(content);return;
       }
       if(!equal(req.headers['x-dark-fabric-token'],token)){json(res,401,{error:'Operator token required'});return;}
-      if(req.method==='GET'&&url.pathname==='/api/state'){json(res,200,{...store.snapshot(),dailyTurnLimit:config.dailyTurnLimit,quotaPollMs:config.quotaPollMs,usage:usageSnapshot(store)});return;}
+      if(req.method==='GET'&&url.pathname==='/api/state'){
+        const settings=factorySettings(store,config);
+        json(res,200,{...store.snapshot(),dailyTurnLimit:config.dailyTurnLimit,quotaPollMs:config.quotaPollMs,usage:usageSnapshot(store),settings,quotaReserve:quotaReserve(store.get('quota'),settings),tokenAnalysis:tokenAnalysisSnapshot(store,settings)});return;
+      }
+      if(req.method==='POST'&&url.pathname==='/api/settings'){
+        json(res,200,{settings:updateSettings(store,config,await body(req))});return;
+      }
       if(req.method==='POST'&&url.pathname==='/api/answers') {
         const data=await body(req);json(res,200,store.answer(data.id,data.answer));return;
       }

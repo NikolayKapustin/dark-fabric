@@ -1,9 +1,9 @@
 const $=id=>document.getElementById(id);
 const token=document.querySelector('meta[name=operator-token]').content;
-let state,selected=null,loading=false;
+let state,selected=null,loading=false,settingsDirty=false;
 const drafts=new Map();
 const names={pending:'В очереди',running:'В работе',blocked:'Нужен ответ',done:'Готово',active:'Активна',completed:'Завершена',research:'Исследование',plan:'План',implement:'Реализация',verify:'Проверки',review:'Ревью',integrate:'Интеграция',retrospective:'Улучшение',assess:'Следующий этап'};
-const eventNames={'task.claimed':'Начат этап','stage.completed':'Этап завершён','task.integrated':'Интегрировано','verification.passed':'Проверки пройдены','question.created':'Нужен ответ','question.answered':'Ответ сохранён','task.retry':'Повтор запланирован','task.repair':'Исправление','task.recovered':'Восстановлено','quota.wait':'Ожидание лимита','mission.created':'Создана миссия','mission.completed':'Миссия завершена','retrospective.created':'Анализ процесса'};
+const eventNames={'factory.settings.updated':'Настройки сохранены','tokens.analyzed':'Анализ расхода токенов','quota.reserve.wait':'Сохраняем резерв лимита','quota.reserve.recovered':'Лимит восстановлен','quota.reserve.interrupted':'Этап сохранён до восстановления лимита','task.claimed':'Начат этап','stage.completed':'Этап завершён','task.integrated':'Интегрировано','verification.passed':'Проверки пройдены','question.created':'Нужен ответ','question.answered':'Ответ сохранён','task.retry':'Повтор запланирован','task.repair':'Исправление','task.recovered':'Восстановлено','quota.wait':'Ожидание лимита','mission.created':'Создана миссия','mission.completed':'Миссия завершена','retrospective.created':'Анализ процесса'};
 function el(tag,text,className){const node=document.createElement(tag);if(text!==undefined)node.textContent=text;if(className)node.className=className;return node;}
 function error(message){$('error').textContent=message;$('error').hidden=!message;}
 async function api(url,data){const r=await fetch(url,{method:data===undefined?'GET':'POST',headers:{'X-Dark-Fabric-Token':token,'Content-Type':'application/json'},...(data===undefined?{}:{body:JSON.stringify(data)})});const result=await r.json();if(!r.ok)throw new Error(result.error||r.statusText);return result;}
@@ -27,10 +27,11 @@ function render(){
   const tasks=state.tasks,open=state.questions.filter(q=>q.answer===null),quota=state.quota;
   $('question-count').textContent=open.length;
   for(const [key,status]of[['active','running'],['pending','pending'],['blocked','blocked'],['done','done']])$(key+'-count').textContent=tasks.filter(t=>t.status===status).length;
-  const quotaWait=quota?.blocked&&quota.until>Date.now();
+  const reserveWait=state.quotaReserve?.blocked;
+  const quotaWait=reserveWait||(quota?.blocked&&quota.until>Date.now());
   const budgetWait=state.budget?.day===new Date().toISOString().slice(0,10)&&state.budget.used>=state.dailyTurnLimit;
   $('status').textContent=state.paused?'Очередь приостановлена':quotaWait?'Ожидаем восстановления лимита':budgetWait?'Дневной бюджет исчерпан':tasks.some(t=>t.status==='running')?'Фабрика работает':tasks.some(t=>t.status==='pending')?'Выбираем доступные задачи':open.length?'Ожидаем ваши решения':'Фабрика готова к работе';
-  $('status-description').textContent=quotaWait?`Следующая проверка ${date(quota.until)}. Локальные проверки продолжаются.`:budgetWait?'Новые обращения к Codex продолжатся после 00:00 UTC.':state.paused?'Текущие этапы завершаются; новые пока не запускаются.':open.length?`${open.length} вопросов сохранено. Независимые задачи могут продолжаться.`:'Задачи и результаты сохраняются в локальной базе.';
+  $('status-description').textContent=state.paused?'Текущие этапы завершаются; новые пока не запускаются.':reserveWait?`Сохраняем резерв ${state.quotaReserve.threshold}%. Обращения к Codex приостановлены до подтверждённого восстановления лимита. Локальные проверки продолжаются.`:quotaWait?`Следующая проверка ${date((quota.checkedAt||quota.observedAt)+state.quotaPollMs)}. Локальные проверки продолжаются.`:budgetWait?'Новые обращения к Codex продолжатся после 00:00 UTC.':open.length?`${open.length} вопросов сохранено. Независимые задачи могут продолжаться.`:'Задачи и результаты сохраняются в локальной базе.';
   $('status-dot').className='dot'+(quotaWait||state.paused||open.length?' wait':'');
   $('updated').textContent='Обновлено '+new Date().toLocaleTimeString('ru-RU');
   $('pause').textContent=state.paused?'Продолжить работу':'Приостановить очередь';
@@ -50,7 +51,7 @@ function render(){
   for(const m of state.missions){const card=el('div',undefined,'mission');card.append(el('strong',`${state.projects.find(p=>p.id===m.project_id)?.name||'Проект'} · ${names[m.status]||m.status}${m.continuous?' · Непрерывный цикл':''}`),el('p',m.goal.split('\n')[0]),el('code',`Результат: ${m.workspace}`));$('missions').append(card);}
   $('tasks').replaceChildren();$('empty-work').hidden=!!tasks.length;
   for(const task of tasks){const row=el('tr',undefined,task.id===selected?'selected':'');row.tabIndex=0;const status=el('td');status.append(el('span',names[task.status]||task.status,'badge '+task.status));row.append(el('td',task.title),el('td',names[task.phase]||task.phase),status);const select=()=>{selected=task.id;render();};row.onclick=select;row.onkeydown=e=>{if(e.key==='Enter')select();};$('tasks').append(row);}
-  resources();detail();$('events').replaceChildren();
+  resources();detail();renderSettings();$('events').replaceChildren();
   for(const event of state.events.slice(0,30)){const line=el('div',undefined,'event');const description=state.tasks.find(t=>t.id===event.task_id)?.title||event.data.check&&`${event.data.check}: ${event.data.code===0?'успешно':'ошибка'}`||event.data.goal||event.data.message||'';line.append(el('time',date(event.at)),el('strong',eventNames[event.type]||event.type),el('span',description.slice(0,200)));$('events').append(line);}
   const current=$('project').value;$('project').replaceChildren();for(const p of state.projects){const o=el('option',p.name);o.value=p.id;$('project').append(o);}if(current)$('project').value=current;
 }
@@ -58,7 +59,28 @@ async function refresh(){if(loading)return;loading=true;try{state=await api('/ap
 $('pause').onclick=async()=>{try{await api('/api/pause',{paused:!state.paused});await refresh();}catch(e){error(e.message);}};
 $('new-mission').onclick=()=>{$('mission-form').hidden=!$('mission-form').hidden;};
 $('mission-form').onsubmit=async e=>{e.preventDefault();const button=e.target.querySelector('button');button.disabled=true;try{await api('/api/missions',{projectId:$('project').value,goal:$('goal').value});$('goal').value='';$('mission-form').hidden=true;await refresh();}catch(err){error(err.message);}finally{button.disabled=false;}};
+$('settings-form').oninput=()=>{settingsDirty=true;$('settings-message').textContent='';};
+$('settings-form').onsubmit=async e=>{
+ e.preventDefault();const button=e.target.querySelector('button');button.disabled=true;
+ try{await api('/api/settings',{quotaReservePercent:Number($('quota-reserve').value),tokenAnalysisEnabled:$('token-analysis-enabled').checked,tokenAnalysisIntervalHours:Number($('token-analysis-hours').value)});settingsDirty=false;$('settings-message').textContent='Настройки сохранены';await refresh();}
+ catch(err){error(err.message);}finally{button.disabled=false;}
+};
 void refresh();setInterval(refresh,5000);
+
+function renderSettings(){
+ const s=state.settings,a=state.tokenAnalysis;if(!s||!a)return;
+ if(!settingsDirty){$('quota-reserve').value=s.quotaReservePercent;$('token-analysis-enabled').checked=s.tokenAnalysisEnabled;$('token-analysis-hours').value=s.tokenAnalysisIntervalHours;}
+ $('token-analysis-status').textContent=a.enabled?(a.nextAt?'Следующий анализ: '+date(a.nextAt):'Первый анализ — при следующем проходе работающей очереди.'):'Создание периодических задач выключено. Уже созданные задачи остаются в очереди.';
+ const box=$('token-analysis-reports');box.replaceChildren();
+ if(!a.reports.length)box.append(el('p','Отчётов пока нет. Анализ использует новые завершённые сессии с измеренным расходом токенов.'));
+ for(const item of a.reports){
+   const r=item.report,task=state.tasks.find(t=>t.id===item.task_id),card=el('article',undefined,'mission');
+   card.append(el('strong','Анализ сессий · '+date(item.created_at)),el('p',`Сессий: ${r.sessionCount} · запусков: ${r.runCount} · ${r.totals.totalTokens.toLocaleString('ru-RU')} токенов`),el('p',`Неуспешных запусков: ${r.failedRuns}. Доля кэшированного входа: ${r.cacheHitPercent===null?'—':r.cacheHitPercent+'%'}. Частичных измерений: ${r.partialRuns}.`));
+   if(task){const link=el('button','Открыть задачу анализа','quiet');link.onclick=()=>{selected=task.id;render();$('task-detail').scrollIntoView({behavior:'smooth'});};card.append(link,el('p',task.result?.summary||names[task.status]||task.status));}
+   else card.append(el('p','Проект завершён: сохранён локальный отчёт без нового обращения к Codex.'));
+   box.append(card);
+ }
+}
 
 function resources(){
  const u=state.usage,q=state.quota,fmt=n=>Number.isFinite(n)?n.toLocaleString('ru-RU'):'—';

@@ -1,3 +1,4 @@
+import {quotaReserve,settingsDefaults} from './settings.js';
 const brief=t=>t?{id:t.id,title:t.title.slice(0,300),phase:t.phase,status:t.status}:null;
 export function factoryActivity(snapshot,config,incidents=[],now=Date.now()){
   const tasks=snapshot.tasks,byId=new Map(tasks.map(t=>[t.id,t])),activeMissions=new Set(snapshot.missions.filter(m=>m.status==='active').map(m=>m.id));
@@ -13,6 +14,7 @@ export function factoryActivity(snapshot,config,incidents=[],now=Date.now()){
   const next=current?pending.find(t=>t.id!==current.id&&t.depends.includes(current.id))||waiting.find(t=>t.id!==current.id):null;
   let state='idle',reason='Нет доступных задач.';
   if(snapshot.paused){state='paused';reason='Очередь приостановлена оператором.';}
+  else if(quotaReserve(snapshot.quota,{...settingsDefaults,...config}).blocked&&(!running||!['verify','integrate'].includes(running.phase))){state='quota';reason=`Сохраняем резерв лимита ${config.quotaReservePercent??settingsDefaults.quotaReservePercent}%. Обращения к Codex приостановлены до подтверждённого восстановления квоты.`;}
   else if(running){state='running';reason='Исполнитель выполняет текущий этап.';}
   else if(snapshot.quota?.blocked&&snapshot.quota.until>now){state='quota';reason='Ожидание восстановления лимита Codex.';}
   else if(snapshot.budget?.day===new Date(now).toISOString().slice(0,10)&&snapshot.budget.used>=config.dailyTurnLimit){state='budget';reason='Достигнут суточный бюджет фабрики; продолжение после 00:00 UTC.';}

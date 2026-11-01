@@ -84,7 +84,7 @@ export function quotaState(response, now = Date.now(), bucket = 'codex') {
   const windows=[selected.primary,selected.secondary].filter(Boolean);
   const complete=windows.length>0 && windows.every(w=>Number.isFinite(w.usedPercent));
   const exhausted=windows.filter(w=>Number.isFinite(w.usedPercent) && w.usedPercent>=100 && (!Number.isFinite(w.resetsAt) || w.resetsAt*1000>now));
-  if (!exhausted.length && !complete) return {known:false,blocked:false,until:0,observedAt:now};
+  if (!exhausted.length && !complete) return {known:false,complete:false,blocked:false,until:0,observedAt:now,primary:selected.primary,secondary:selected.secondary};
   const until=exhausted.reduce((v,w)=>Math.max(v,Number.isFinite(w.resetsAt)?w.resetsAt*1000+5000:now+900_000),0);
   return {known:true,complete,blocked:exhausted.length>0,until,observedAt:now,bucket:selected.limitId||bucket,primary:selected.primary,secondary:selected.secondary};
 }

@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { initTelemetry } from './telemetry.js';
+import { initTokenAnalysis } from './token-analysis.js';
 import { initInputs } from './inputs.js';
 import { initProjects } from './projects.js';
 
@@ -76,6 +77,7 @@ export class Store {
     if(!this.db.pragma('table_info(missions)').some(c=>c.name==='continuous'))this.db.exec('ALTER TABLE missions ADD COLUMN continuous INTEGER NOT NULL DEFAULT 0');
     this.db.pragma('user_version = 2');
     initTelemetry(this.db);
+    initTokenAnalysis(this.db);
     initInputs(this.db);
     initProjects(this.db);
   }

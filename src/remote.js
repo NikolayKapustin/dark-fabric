@@ -4,6 +4,7 @@ import { usageSnapshot } from './telemetry.js';
 import { acceptInput,inputSnapshot } from './inputs.js';
 import {requestProject,updateProject,queueDiscovery} from './projects.js';
 import {portfolioSnapshot} from './portfolio.js';
+import {factorySettings,quotaReserve} from './settings.js';
 
 const text=(value,max=20000)=>String(value??'').slice(0,max);
 function compactRoadmap(roadmap,budget=24000){
@@ -27,6 +28,7 @@ function compactRoadmap(roadmap,budget=24000){
 }
 // Explicit projection: no credentials, quality command arguments or raw tool logs.
 export function remoteSnapshot(store,config) {
+  config={...config,...factorySettings(store,config)};
   const s=store.snapshot();
   const incidents=store.rows("SELECT value FROM meta WHERE key LIKE 'incident:%'").map(row=>JSON.parse(row.value)).filter(i=>i.status!=='resolved');
   const portfolio=portfolioSnapshot(store,s,config,incidents);
@@ -40,6 +42,7 @@ export function remoteSnapshot(store,config) {
   const missions=[...s.missions.filter(m=>missionIds.has(m.id)),...s.missions.filter(m=>!missionIds.has(m.id))].slice(0,Math.max(50,missionIds.size));
   const snapshot={
     generatedAt:Date.now(),dailyTurnLimit:config.dailyTurnLimit,quotaPollMs:config.quotaPollMs,
+    settings:factorySettings(store,config),quotaReserve:quotaReserve(s.quota,config),
     usage:usageSnapshot(store),
     inputs:inputSnapshot(store),inputCount:store.row('SELECT COUNT(*) n FROM mission_inputs').n,
     executionAccess:config.executionAccess,

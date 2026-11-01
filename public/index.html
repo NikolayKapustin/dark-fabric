@@ -2,7 +2,7 @@
 <html lang="ru">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="operator-token" content="__OPERATOR_TOKEN__"><title>Dark Fabric — пульт фабрики</title><link rel="stylesheet" href="/style.css"><script src="/app.js" defer></script></head>
 <body>
-<aside><a class="brand" href="/">df<span>Dark Fabric</span></a><div class="rail-caption">ЛОКАЛЬНАЯ ФАБРИКА</div><nav><a href="#overview">Обзор</a><a href="#decisions">Решения человека <b id="question-count">0</b></a><a href="#work">Работа</a><a href="#journal">Журнал</a></nav><div class="rail-bottom"><span class="dot"></span> Codex · SQLite · Git<br><small>Состояние сохраняется между запусками</small></div></aside>
+<aside><a class="brand" href="/">df<span>Dark Fabric</span></a><div class="rail-caption">ЛОКАЛЬНАЯ ФАБРИКА</div><nav><a href="#overview">Обзор</a><a href="#decisions">Решения человека <b id="question-count">0</b></a><a href="#work">Работа</a><a href="#settings">Настройки</a><a href="#journal">Журнал</a></nav><div class="rail-bottom"><span class="dot"></span> Codex · SQLite · Git<br><small>Состояние сохраняется между запусками</small></div></aside>
 <main>
 <header><div><div class="eyebrow">ОПЕРАТОРСКАЯ / DARK FABRIC</div><h1>Работа продолжается.</h1><p>Задавайте направление. Проверяйте результат. Решайте вопросы, когда удобно.</p></div><button id="pause" class="quiet">Приостановить очередь</button></header>
 <div id="error" role="alert" hidden></div>
@@ -10,6 +10,16 @@
 <section id="resources"><div class="section-heading"><h2>Ресурсы и исполнитель</h2><span>Фактические измерения Codex</span></div><div id="resource-metrics" class="metrics"></div><div id="resource-details" class="mission"></div></section>
 <section id="decisions"><div class="section-heading"><h2>Решения человека</h2><span>Блокируются только зависимые задачи</span></div><div id="questions"></div></section>
 <section id="work"><div class="section-heading"><h2>Миссии и задачи</h2><button id="new-mission" class="primary">+ Новая миссия</button></div><form id="mission-form" hidden><label>Проект<select id="project" required></select></label><label>Результат, который нужно получить<textarea id="goal" required rows="3" placeholder="Цель, ограничения и критерии готовности"></textarea></label><button class="primary" type="submit">Добавить в работу</button></form><div id="missions"></div><div class="work-layout"><div class="table-wrap"><table><thead><tr><th>Задача</th><th>Этап</th><th>Состояние</th></tr></thead><tbody id="tasks"></tbody></table><div id="empty-work" class="empty" hidden>Добавьте проект через CLI и создайте первую миссию.</div></div><div id="task-detail" class="detail"><div class="eyebrow">КОНТРОЛЬ КАЧЕСТВА</div><h3>Выберите задачу</h3><p>Здесь появятся критерии, выводы ревью, проверки и путь к результату.</p><div class="pipeline">Исследование → План → Код → Проверки → Ревью → Интеграция</div></div></div></section>
+<section id="settings"><div class="section-heading"><h2>Настройки фабрики</h2><span>Сохраняются между запусками</span></div>
+<form id="settings-form" class="mission">
+<label for="quota-reserve">Сохранять остаток лимита Codex, %</label><input id="quota-reserve" type="number" min="0" max="99" step="1" required aria-describedby="reserve-help">
+<p id="reserve-help">При достижении указанного остатка или ниже фабрика приостанавливает обращения к Codex и сохраняет незавершённую работу. Возобновление — после подтверждённого восстановления лимита. Локальные проверки продолжаются. 0 отключает резерв.</p>
+<p>Лимит общий для аккаунта. Данные приходят с задержкой, поэтому точный остаток в момент остановки может быть меньше порога.</p>
+<label class="check-label"><input id="token-analysis-enabled" type="checkbox"> Периодически анализировать сессии и предлагать оптимизации</label>
+<label for="token-analysis-hours">Период анализа, часов</label><input id="token-analysis-hours" type="number" min="1" max="168" step="1" required>
+<p>По умолчанию раз в сутки. Сводка строится локально по новым завершённым запускам. Для активного проекта создаётся одна задача анализа; она соблюдает резерв лимита. Предложенные изменения проходят проверки и отдельное ревью.</p>
+<button class="primary" type="submit">Сохранить настройки</button><span id="settings-message" role="status"></span>
+</form><div id="token-analysis-status"></div><div id="token-analysis-reports"></div></section>
 <section id="journal"><div class="section-heading"><h2>Последние события</h2><span id="budget"></span></div><div id="events"></div></section>
 <footer>Изменения проходят проверки и отдельное ревью. Результаты находятся в ветке миссии. Локальное время отображается по настройкам браузера.</footer>
 </main></body></html>

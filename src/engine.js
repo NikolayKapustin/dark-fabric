@@ -12,51 +12,79 @@ import { recordUsage, backfillUsage } from './telemetry.js';
 import { assignAgent } from './agents.js';
 import { inputContext,markInputsProvided } from './inputs.js';
 import {processProjectIntake,recordProjectMetrics,metricHash} from './projects.js';
+import {factorySettings,quotaReserve,restrictiveQuota} from './settings.js';
+import {scheduleTokenAnalysis} from './token-analysis.js';
 
 export class Engine {
   constructor(store,config,{runner,workspaces,command=runCommand,now=Date.now,onHeartbeat=()=>{}}={}) {
     this.store=store;this.config=config;this.runner=runner||new CodexRunner(config);
     this.workspaces=workspaces||new Workspaces(config.root);this.command=command;this.now=now;this.onHeartbeat=onHeartbeat;
     this.active=new Map();this.stopped=false;this.ticking=false;this.controller=new AbortController();
+    this.modelControllers=new Map();
+    this.quotaRevision=0;
     mkdirSync(path.join(config.root,'logs'),{recursive:true});
     mkdirSync(path.join(config.root,'reports'),{recursive:true});
     backfillUsage(store,config.root);
   }
   modelAllowed() {
     const now=this.now(),quota=this.store.get('quota');
+    if(quotaReserve(quota,factorySettings(this.store,this.config)).blocked)return false;
     if(quota?.blocked && quota.until>now)return false;
     const day=new Date(now).toISOString().slice(0,10),budget=this.store.get('budget');
     return !(budget?.day===day && budget.used>=this.config.dailyTurnLimit);
   }
+  enforceReserve() {
+    const reserve=quotaReserve(this.store.get('quota'),factorySettings(this.store,this.config));
+    if(reserve.blocked)for(const controller of this.modelControllers.values())controller.abort();
+    if(reserve.blocked!==this.store.get('quota:reserveWaiting',false)){
+      this.store.tx(()=>{
+        this.store.set('quota:reserveWaiting',reserve.blocked);
+        this.store.event(reserve.blocked?'quota.reserve.wait':'quota.reserve.recovered',null,reserve);
+      });
+    }
+  }
   async refreshQuota(force=false) {
+    if(this.quotaPoll)return this.quotaPoll;
+    const pending=this.pollQuota(force);this.quotaPoll=pending;
+    try{return await pending;}finally{if(this.quotaPoll===pending)this.quotaPoll=null;}
+  }
+  async pollQuota(force=false) {
     const now=this.now(),last=this.store.get('quota');
-    const cooling=last?.blocked && last.until>now;
+    const revision=this.quotaRevision;
+    const cooling=(last?.blocked && last.until>now)||quotaReserve(last,factorySettings(this.store,this.config)).blocked;
     // A reset or plan change can restore quota before the advertised deadline.
     // Poll telemetry during cooldown, but never treat a failed read as recovery.
     if(!force && last && (!last.blocked || cooling) && now-(last.checkedAt??last.observedAt??0)<this.config.quotaPollMs)return;
     try {
       const quota=await this.runner.readQuota();
+      // A live notification (or another poll) can arrive while this RPC waits.
+      // Never replace that newer decision with the older in-flight response.
+      if(revision!==this.quotaRevision)return;
       // After the durable cooldown expires, missing telemetry allows one controlled probe.
       // If it still hits a hard limit, execute() persists another cooldown.
       const uncertain=!quota.known || quota.complete===false;
       if(uncertain && cooling) {
-        this.store.set('quota',{...last,known:false,checkedAt:now,error:undefined,
-          until:Math.max(last.until,quota.blocked?quota.until:0)});
+        this.store.set('quota',restrictiveQuota(last,quota,now));
       } else if(uncertain && last?.blocked && !quota.blocked) {
         this.store.set('quota',{...last,known:false,blocked:false,until:0,observedAt:now,checkedAt:now});
       } else this.store.set('quota',{...quota,checkedAt:now});
     } catch(error) {
+      if(revision!==this.quotaRevision)return;
       this.store.set('quota',cooling
         ? {...last,known:false,checkedAt:now,error:error.message}
         : {known:false,blocked:false,until:0,observedAt:now,checkedAt:now,error:error.message});
     }
+    this.quotaRevision++;
+    this.enforceReserve();
   }
   async tick() {
     if(this.ticking||this.stopped)return;
     this.ticking=true;
     try {
       this.store.set('heartbeat',{at:this.now(),pid:process.pid,active:[...this.active.keys()]});
+      this.enforceReserve();
       if(this.store.get('paused',false))return;
+      scheduleTokenAnalysis(this.store,factorySettings(this.store,this.config),this.now());
       if(!this.provisioning)this.provisioning=processProjectIntake(this.store,this.config,{signal:this.controller.signal}).catch(e=>this.store.event('project.retry',null,{message:e.message})).finally(()=>{this.provisioning=null;});
       if(this.active.size||this.store.row("SELECT id FROM tasks WHERE status='pending' AND phase NOT IN ('verify','integrate') AND available_at<=?",this.now())) await this.refreshQuota();
       while(this.active.size<this.config.workers) {
@@ -81,6 +109,7 @@ export class Engine {
   release(task,fields) { this.store.patch(task.id,{...fields,lease:null},task.lease); }
   async execute(initial) {
     let task=initial;
+    let quotaController;
     const mission=this.store.mission(task.mission_id),project=this.store.project(mission.project_id);
     const runId=this.store.startRun(task);
     try {
@@ -116,7 +145,7 @@ export class Engine {
         });
         return;
       }
-      if(!this.modelAllowed()||!this.store.consumeTurn(this.now(),this.config.dailyTurnLimit)) {
+      if(!this.modelAllowed()) {
         this.release(task,{status:'pending'});this.store.finishRun(runId,'deferred');return;
       }
       if(task.phase==='implement') {
@@ -126,15 +155,15 @@ export class Engine {
       const dependencies=task.depends.map(id=>this.store.task(id));
       const lessons=this.store.rows('SELECT * FROM lessons WHERE mission_id=? ORDER BY created_at DESC LIMIT 12',mission.id);
       const checkResults=this.store.row("SELECT * FROM runs WHERE task_id=? AND phase='verify' AND status='done' ORDER BY started_at DESC LIMIT 1",task.id)?.result;
-      if(['retrospective','assess'].includes(task.phase)) {
+      if(['retrospective','assess'].includes(task.phase)&&task.kind!=='token_analysis') {
         dependencies.push(...this.store.rows("SELECT * FROM tasks WHERE mission_id=? AND kind='work' ORDER BY updated_at DESC LIMIT 20",mission.id));
         task={...task,feedback:task.feedback+'\nRecent failure evidence: '+JSON.stringify(this.store.rows("SELECT e.* FROM events e JOIN tasks t ON t.id=e.task_id WHERE t.mission_id=? AND e.type IN ('task.retry','task.repair','task.recovered') ORDER BY e.id DESC LIMIT 20",mission.id))};
       }
-      const queue=task.kind==='input'?this.store.rows("SELECT * FROM tasks WHERE mission_id=? AND status!='done' AND id!=?",mission.id,task.id):[];
+      const queue=task.kind==='input'?this.store.rows("SELECT * FROM tasks WHERE mission_id=? AND status!='done' AND id!=?",mission.id,task.id):task.kind==='token_analysis'?this.store.rows("SELECT id,substr(title,1,200) AS title,substr(instructions,1,600) AS instructions,criteria_json,status,phase,depends_json FROM tasks WHERE mission_id=? AND status!='done' AND id!=? ORDER BY improvement DESC,priority DESC,created_at LIMIT 20",mission.id,task.id).map(q=>({...q,criteria:q.criteria.slice(0,3).map(c=>c.slice(0,200)),depends:q.depends.slice(0,10)})):[];
       const pinResults=inspectQualityPins(project.checks,task.workspace||mission.workspace);
       const recovery=this.store.get(`recovery:${task.id}`);
       const assignment=await assignAgent(this.store,this.runner,this.config,task,project,runId,recovery,this.now());
-      const inputs=inputContext(this.store,this.config.root,mission.id);
+      const inputs=task.kind==='token_analysis'?{entries:[],total:0,historyFile:null}:inputContext(this.store,this.config.root,mission.id);
       const discoveryHead=['discover','discovery_review'].includes(task.phase)?task.checkpoint_sha:null;
       const prompt=makePrompt({task,mission,project,dependencies,answers:this.store.answers(task.id),lessons,checkResults,pinResults,recovery,config:this.config,assignment,inputs,queue});
       const logfile=path.join(this.config.root,'logs',`${runId}.jsonl`);
@@ -154,17 +183,25 @@ export class Engine {
         if(event.method==='account/rateLimits/updated'){
           const now=this.now(),quota=quotaState(event.params,now),last=this.store.get('quota');
           if(quota.known&&quota.complete)this.store.set('quota',{...quota,checkedAt:now});
-          else if(quota.blocked)this.store.set('quota',{...quota,known:false,checkedAt:now,
-            until:Math.max(quota.until,last?.blocked?last.until:0)});
+          else if(quota.blocked||quotaReserve(quota,factorySettings(this.store,this.config)).blocked)this.store.set('quota',restrictiveQuota(last,quota,now));
+          this.quotaRevision++;
+          this.enforceReserve();
         }
       };
-      const result=validateStageResult(await this.runner.run({
+      if(!this.modelAllowed()||!this.store.consumeTurn(this.now(),this.config.dailyTurnLimit)){
+        this.release(task,{status:'pending'});this.store.finishRun(runId,'deferred');return;
+      }
+      quotaController=new AbortController();this.modelControllers.set(runId,quotaController);
+      const rawResult=await this.runner.run({
         cwd:task.workspace||mission.workspace,prompt,schema:stageSchema(task,project),readOnly:task.phase!=='implement',threadId:task.thread_id,
         model:assignment.model,effort:assignment.effort,
-        signal:this.controller.signal,
+        signal:AbortSignal.any([this.controller.signal,quotaController.signal]),
         onThread:threadId=>{this.store.patch(task.id,{thread_id:threadId},task.lease);this.store.db.prepare('UPDATE runs SET thread_id=? WHERE id=?').run(threadId,runId);},
         onEvent:log,
-      }),task,project,task.phase==='retrospective'?this.config.maxImprovementTasks:task.phase==='assess'?5:this.config.maxPlanTasks);
+      });
+      if(quotaController.signal.aborted)throw Error('Quota reserve reached');
+      this.modelControllers.delete(runId);
+      const result=validateStageResult(rawResult,task,project,task.kind==='token_analysis'?1:task.phase==='retrospective'?this.config.maxImprovementTasks:task.phase==='assess'?5:this.config.maxPlanTasks);
       writeFileSync(path.join(this.config.root,'reports',`${runId}.json`),JSON.stringify(result,null,2));
       if(discoveryHead&&!await this.workspaces.cleanAt(task))throw Error('Read-only discovery changed its isolated checkpoint; preserve this checkout and retry from the original source');
       if(result.status==='blocked') {
@@ -225,6 +262,13 @@ export class Engine {
         this.store.finishRun(runId,'done',result);this.store.event('stage.completed',task.id,{phase:task.phase,summary:result.summary});
       });
     } catch(error) {
+      if(quotaController?.signal.aborted&&!this.stopped){
+        this.store.tx(()=>{
+          this.store.finishRun(runId,'deferred',{reason:'quota_reserve'});
+          this.release(task,{status:'pending'});
+          this.store.event('quota.reserve.interrupted',task.id,{runId});
+        });return;
+      }
       this.store.finishRun(runId,'failed',{message:error.message,details:error.details||null});
       if(this.stopped) {this.release(task,{status:'pending'});return;}
       const kind=classifyError(error);
@@ -241,7 +285,7 @@ export class Engine {
       } else if(kind==='context') {
         this.retry(task,error,{thread_id:null,feedback:task.feedback+'\nPrior context exhausted. Reconstruct from the workspace, durable task record and prior feedback.'});
       } else this.retry(task,error);
-    }
+    } finally {this.modelControllers.delete(runId);}
   }
   async verify(task,project,runId) {
     if(!project.checks.length) {
